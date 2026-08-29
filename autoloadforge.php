@@ -224,7 +224,12 @@ function autoloadforge_render_page() {
 			<?php esc_html_e( 'Autoloaded options load on every single page request. Switching off the ones you do not need on every page trims that weight. It is reversible, so nothing here is permanent.', 'autoloadforge' ); ?>
 		</p>
 
-		<h2><?php printf( esc_html__( 'Largest autoloaded options (top %d)', 'autoloadforge' ), (int) $limit ); ?></h2>
+		<h2>
+			<?php
+			/* translators: %d: number of options shown in the table. */
+			printf( esc_html__( 'Largest autoloaded options (top %d)', 'autoloadforge' ), (int) $limit );
+			?>
+		</h2>
 		<table class="widefat striped">
 			<thead>
 				<tr>
