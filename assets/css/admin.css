@@ -1,0 +1,54 @@
+.autoloadforge .alf-cards {
+	display: flex;
+	gap: 16px;
+	flex-wrap: wrap;
+	margin: 16px 0 8px;
+}
+
+.autoloadforge .alf-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	padding: 16px 20px;
+	min-width: 160px;
+}
+
+.autoloadforge .alf-card-num {
+	display: block;
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.autoloadforge .alf-card-label {
+	display: block;
+	color: #646970;
+	font-size: 12px;
+	margin-top: 4px;
+}
+
+.autoloadforge table {
+	margin-top: 8px;
+	max-width: 900px;
+}
+
+.autoloadforge td code {
+	background: transparent;
+	padding: 0;
+}
+
+.autoloadforge .alf-inline-form {
+	margin: 0;
+}
+
+.autoloadforge .alf-health-good {
+	color: #2a8a3e;
+}
+
+.autoloadforge .alf-health-warn {
+	color: #b26a00;
+}
+
+.autoloadforge .alf-health-bad {
+	color: #c1272d;
+}

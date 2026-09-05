@@ -22,18 +22,52 @@ if ( ! defined( 'ABSPATH' ) ) {
 define( 'AUTOLOADFORGE_VERSION', '1.0.0' );
 
 /**
+ * Store or retrieve the admin page hook suffix.
+ *
+ * @param string|null $set Hook suffix to store, or null to read the stored value.
+ * @return string
+ */
+function autoloadforge_page_hook( $set = null ) {
+	static $hook = '';
+	if ( null !== $set ) {
+		$hook = $set;
+	}
+	return $hook;
+}
+
+/**
  * Register the Tools submenu page.
  */
 function autoloadforge_admin_menu() {
-	add_management_page(
+	$hook = add_management_page(
 		__( 'AutoloadForge', 'autoloadforge' ),
 		__( 'AutoloadForge', 'autoloadforge' ),
 		'manage_options',
 		'autoloadforge',
 		'autoloadforge_render_page'
 	);
+	autoloadforge_page_hook( $hook );
 }
 add_action( 'admin_menu', 'autoloadforge_admin_menu' );
+
+/**
+ * Enqueue the admin stylesheet, only on the plugin's own screen.
+ *
+ * @param string $hook_suffix Current admin page hook suffix.
+ */
+function autoloadforge_enqueue_assets( $hook_suffix ) {
+	if ( $hook_suffix !== autoloadforge_page_hook() ) {
+		return;
+	}
+
+	wp_enqueue_style(
+		'autoloadforge-admin',
+		plugins_url( 'assets/css/admin.css', __FILE__ ),
+		array(),
+		AUTOLOADFORGE_VERSION
+	);
+}
+add_action( 'admin_enqueue_scripts', 'autoloadforge_enqueue_assets' );
 
 /**
  * Handle the stop / restore autoload action, then redirect back.
@@ -50,21 +84,22 @@ function autoloadforge_handle_toggle() {
 	$msg    = 'none';
 
 	if ( '' !== $option && in_array( $op, array( 'stop', 'restore' ), true ) ) {
-		$tracked = get_option( 'autoloadforge_disabled', array() );
-		if ( ! is_array( $tracked ) ) {
-			$tracked = array();
-		}
+		$tracked = autoloadforge_get_disabled();
 
 		if ( 'stop' === $op ) {
+			// Capture the size from the already-loaded autoload bundle before
+			// switching it off, so the size can be shown later without reading
+			// the value back by a request-supplied option name.
+			$alloptions = wp_load_alloptions();
+			$size       = isset( $alloptions[ $option ] ) ? autoloadforge_value_size( $alloptions[ $option ] ) : 0;
+
 			wp_set_option_autoload( $option, false );
-			if ( ! in_array( $option, $tracked, true ) ) {
-				$tracked[] = $option;
-			}
-			$msg = 'stopped';
+			$tracked[ $option ] = $size;
+			$msg                = 'stopped';
 		} else {
 			wp_set_option_autoload( $option, true );
-			$tracked = array_values( array_diff( $tracked, array( $option ) ) );
-			$msg     = 'restored';
+			unset( $tracked[ $option ] );
+			$msg = 'restored';
 		}
 
 		update_option( 'autoloadforge_disabled', $tracked, false );
@@ -145,6 +180,31 @@ function autoloadforge_guess_source( $name, $map ) {
 }
 
 /**
+ * Read the tracked "switched off" options as an option-name => size map.
+ *
+ * A defensive check keeps a legacy flat list of names working.
+ *
+ * @return array<string,int>
+ */
+function autoloadforge_get_disabled() {
+	$tracked = get_option( 'autoloadforge_disabled', array() );
+	if ( ! is_array( $tracked ) ) {
+		return array();
+	}
+
+	$normalized = array();
+	foreach ( $tracked as $key => $value ) {
+		if ( is_int( $key ) ) {
+			$normalized[ (string) $value ] = 0;
+		} else {
+			$normalized[ $key ] = (int) $value;
+		}
+	}
+
+	return $normalized;
+}
+
+/**
  * Byte length of an option value as stored.
  *
  * @param mixed $value Option value.
@@ -179,20 +239,19 @@ function autoloadforge_render_page() {
 	$shown     = array_slice( $sizes, 0, $limit, true );
 	$post_url  = admin_url( 'admin-post.php' );
 
-	// Health colour.
+	// Health state.
 	if ( $total < 512 * 1024 ) {
 		$health_label = __( 'Healthy', 'autoloadforge' );
-		$health_color = '#2a8a3e';
+		$health_class = 'alf-health-good';
 	} elseif ( $total < 1024 * 1024 ) {
 		$health_label = __( 'Getting heavy', 'autoloadforge' );
-		$health_color = '#b26a00';
+		$health_class = 'alf-health-warn';
 	} else {
 		$health_label = __( 'Too heavy', 'autoloadforge' );
-		$health_color = '#c1272d';
+		$health_class = 'alf-health-bad';
 	}
 
-	$disabled = get_option( 'autoloadforge_disabled', array() );
-	$disabled = is_array( $disabled ) ? $disabled : array();
+	$disabled = autoloadforge_get_disabled();
 
 	$msg = isset( $_GET['alf_msg'] ) ? sanitize_key( wp_unslash( $_GET['alf_msg'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 	?>
@@ -215,7 +274,7 @@ function autoloadforge_render_page() {
 				<span class="alf-card-label"><?php esc_html_e( 'Autoloaded options', 'autoloadforge' ); ?></span>
 			</div>
 			<div class="alf-card">
-				<span class="alf-card-num" style="color:<?php echo esc_attr( $health_color ); ?>"><?php echo esc_html( $health_label ); ?></span>
+				<span class="alf-card-num <?php echo esc_attr( $health_class ); ?>"><?php echo esc_html( $health_label ); ?></span>
 				<span class="alf-card-label"><?php esc_html_e( 'Under ~800KB is the goal', 'autoloadforge' ); ?></span>
 			</div>
 		</div>
@@ -246,7 +305,7 @@ function autoloadforge_render_page() {
 					<td><?php echo esc_html( size_format( $size, 1 ) ); ?></td>
 					<td><?php echo esc_html( autoloadforge_guess_source( $name, $map ) ); ?></td>
 					<td>
-						<form method="post" action="<?php echo esc_url( $post_url ); ?>" style="margin:0">
+						<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="alf-inline-form">
 							<?php wp_nonce_field( 'autoloadforge_toggle' ); ?>
 							<input type="hidden" name="action" value="autoloadforge_toggle" />
 							<input type="hidden" name="op" value="stop" />
@@ -271,12 +330,12 @@ function autoloadforge_render_page() {
 					</tr>
 				</thead>
 				<tbody>
-				<?php foreach ( $disabled as $name ) : ?>
+				<?php foreach ( $disabled as $name => $size ) : ?>
 					<tr>
 						<td><code><?php echo esc_html( $name ); ?></code></td>
-						<td><?php echo esc_html( size_format( autoloadforge_value_size( get_option( $name ) ), 1 ) ); ?></td>
+						<td><?php echo esc_html( size_format( (int) $size, 1 ) ); ?></td>
 						<td>
-							<form method="post" action="<?php echo esc_url( $post_url ); ?>" style="margin:0">
+							<form method="post" action="<?php echo esc_url( $post_url ); ?>" class="alf-inline-form">
 								<?php wp_nonce_field( 'autoloadforge_toggle' ); ?>
 								<input type="hidden" name="action" value="autoloadforge_toggle" />
 								<input type="hidden" name="op" value="restore" />
@@ -290,15 +349,6 @@ function autoloadforge_render_page() {
 			</table>
 		<?php endif; ?>
 	</div>
-
-	<style>
-		.autoloadforge .alf-cards { display:flex; gap:16px; flex-wrap:wrap; margin:16px 0 8px; }
-		.autoloadforge .alf-card { background:#fff; border:1px solid #dcdcde; border-radius:6px; padding:16px 20px; min-width:160px; }
-		.autoloadforge .alf-card-num { display:block; font-size:24px; font-weight:600; line-height:1.2; }
-		.autoloadforge .alf-card-label { display:block; color:#646970; font-size:12px; margin-top:4px; }
-		.autoloadforge table { margin-top:8px; max-width:900px; }
-		.autoloadforge td code { background:transparent; padding:0; }
-	</style>
 	<?php
 }
 
